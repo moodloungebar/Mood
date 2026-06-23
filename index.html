@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mood Bar Match & Shot 🥂 Tinder Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');
+        body { font-family: 'Montserrat', sans-serif; }
+        .neon-border { box-shadow: 0 0 12px #facc15, 0 0 24px rgba(250, 204, 21, 0.3); }
+        .neon-text { text-shadow: 0 0 5px #facc15, 0 0 10px rgba(250, 204, 21, 0.5); }
+        .neon-border-heart { box-shadow: 0 0 12px #ef4444, 0 0 24px rgba(239, 68, 68, 0.3); }
+        
+        #video-container {
+            position: relative;
+            width: 100%;
+            padding-bottom: 100%;
+            overflow: hidden;
+            background-color: #1c1917;
+        }
+        #video-feed, #photo-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        .scrollbar-none::-webkit-scrollbar { display: none; }
+        .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Stili specifici per la proiezione in giardino */
+        .projector-slide {
+            width: 100vw;
+            height: 100vh;
+            display: none;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 4rem;
+            background-color: #0c0a09;
+            box-sizing: border-box;
+        }
+        .projector-slide.active { display: flex; }
+    </style>
+</head>
+<body class="bg-stone-950 text-stone-100 min-h-screen pb-12 selection:bg-amber-500/30">
+
+    <div id="app-wrapper">
+        <div class="bg-stone-900 border-b border-stone-800 p-2 text-center text-xs text-stone-400 sticky top-0 z-50">
+            <span class="font-bold text-amber-400">Ruolo Attuale:</span>
+            <select id="roleSelector" onchange="switchRole(this.value)" class="bg-stone-800 text-white border border-stone-700 rounded px-1 ml-2 focus:outline-none focus:border-amber-500">
+                <option value="user">Utente Corrente</option>
+                <option value="admin">Pannello Staff (Admin)</option>
+            </select>
+        </div>
+
+        <div class="max-w-md mx-auto p-4">
+            
+            <header class="text-center my-6 flex flex-col items-center justify-center">
+                <div class="relative mb-3">
+                    <img src="mood.jpg" alt="Mood Lounge Bar Logo" class="w-24 h-24 object-cover rounded-full border-2 border-amber-400 p-1 shadow-xl shadow-amber-500/10" onerror="this.src='https://via.placeholder.com/150'">
+                    <span class="absolute bottom-0 right-1 bg-emerald-500 w-4 h-4 rounded-full border-2 border-stone-950 animate-pulse"></span>
+                </div>
+                <h1 class="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-400 to-yellow-500 neon-text">
+                    MOOD MATCH
+                </h1>
+                <p class="text-xs text-stone-400 mt-1 uppercase tracking-wider font-medium">Incontra persone nel locale & vinci uno shot!</p>
+            </header>
+
+            <div id="screen-register" class="bg-stone-900 border border-stone-800 rounded-2xl p-6 hidden shadow-2xl">
+                <h2 class="text-xl font-bold mb-4 text-center text-amber-400">Crea il tuo profilo istantaneo</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-stone-400 mb-1">Il tuo Nome</label>
+                        <input type="text" id="reg-name" placeholder="Es. Marco, Giulia..." class="w-full bg-stone-950 border border-stone-700 rounded-xl p-3 text-white focus:outline-none focus:border-amber-400 transition">
+                    </div>
+                    
+                    <div class="border border-stone-700 rounded-xl overflow-hidden bg-stone-950">
+                        <label class="block text-sm text-stone-400 p-3 border-b border-stone-800 bg-stone-900/50">Fatti un selfie <span class="text-amber-400 font-bold">ORA</span> (solo foto live)</label>
+                        <div id="video-container">
+                            <video id="video-feed" autoplay playsinline muted></video>
+                            <canvas id="photo-canvas" class="hidden"></canvas>
+                            <div id="fallback-msg" class="absolute inset-0 flex flex-col items-center justify-center p-4 text-center hidden bg-stone-950/95">
+                                <span class="text-3xl mb-2">📸</span>
+                                <p class="text-xs text-stone-300 font-semibold">Modalità Sicura Attivata</p>
+                            </div>
+                        </div>
+                        <input type="file" id="camera-fallback-input" accept="image/*" capture="user" onchange="gestisciFotoFallback(this)" class="hidden">
+                        <div class="p-3 bg-stone-900 border-t border-stone-800 flex justify-center space-x-2">
+                            <button id="btn-camera-action" onclick="gestisciAzioneFotocamera()" class="bg-stone-800 text-amber-400 border border-stone-700 text-xs font-bold px-5 py-2 rounded-full transition hover:bg-stone-700 flex items-center shadow-md">
+                                <span id="camera-icon" class="mr-2">📷</span> <span id="camera-text">Attiva Fotocamera</span>
+                            </button>
+                            <button id="btn-retake" onclick="resetFotocamera()" class="bg-red-950/60 text-red-400 border border-red-900 text-xs font-bold px-4 py-2 rounded-full transition hover:bg-red-900/40 hidden">Rifai Foto</button>
+                        </div>
+                    </div>
+                    <button id="btn-register-final" onclick="registraUtente()" class="w-full bg-stone-800 text-stone-500 font-bold p-3 rounded-xl transition mt-4 cursor-not-allowed border border-stone-700" disabled>Scatta la foto per entrare</button>
+                </div>
+            </div>
+
+            <div id="screen-feed" class="space-y-4 hidden">
+                <div class="bg-stone-900 border border-stone-800 rounded-2xl p-4 flex justify-between items-center shadow-xl">
+                    <div>
+                        <p class="text-xs text-stone-400 uppercase font-semibold tracking-wider">I tuoi Like rimasti</p>
+                        <p class="text-2xl font-black text-amber-400" id="likes-counter">3 / 3</p>
+                    </div>
+                    <div id="cooldown-box" class="text-right hidden">
+                        <p class="text-xs text-red-400 font-bold animate-pulse tracking-wider">PROSSIMI LIKE TRA</p>
+                        <p class="text-lg font-mono font-bold text-stone-200" id="cooldown-timer">10:00</p>
+                    </div>
+                </div>
+                <div id="matches-horizontal-container" class="bg-stone-900 border border-stone-800 rounded-2xl p-3 hidden shadow-lg">
+                    <h3 class="text-[10px] font-black text-amber-400 uppercase tracking-widest px-1 mb-2">I tuoi Match al Mood 🥂</h3>
+                    <div id="matches-avatar-row" class="flex space-x-4 overflow-x-auto pb-1 scrollbar-none"></div>
+                </div>
+                <div id="users-feed-container" class="py-2"></div>
+            </div>
+
+            <div id="screen-chat" class="bg-stone-900 border border-stone-800 rounded-2xl p-4 hidden flex flex-col h-[520px] shadow-2xl">
+                <div class="flex justify-between items-center border-b border-stone-800 pb-3">
+                    <div class="flex items-center space-x-3">
+                        <img id="chat-partner-img" src="" class="w-10 h-10 rounded-full object-cover border-2 border-amber-400">
+                        <div>
+                            <h4 class="font-bold text-sm text-stone-100" id="chat-partner-name">Utente</h4>
+                            <span class="text-[9px] bg-amber-400/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">MATCH ATTIVO</span>
+                        </div>
+                    </div>
+                    <button onclick="tornaAlFeed()" class="text-xs bg-stone-800 text-stone-400 hover:text-stone-200 px-3 py-1 rounded-lg transition">Chiudi</button>
+                </div>
+                <div id="shot-status-box" class="mt-2 p-3 rounded-xl text-center text-xs font-bold"></div>
+                <div id="chat-messages" class="flex-1 overflow-y-auto my-4 space-y-2 p-2 bg-stone-950 border border-stone-800/60 rounded-xl text-sm"></div>
+                <div class="flex space-x-2">
+                    <input type="text" id="chat-input" placeholder="Scrivi qualcosa..." class="flex-1 bg-stone-950 border border-stone-700 rounded-xl p-2.5 text-white text-sm focus:outline-none focus:border-amber-400 transition">
+                    <button onclick="inviaMessaggio()" class="bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 px-5 rounded-xl text-sm font-black transition hover:opacity-90 shadow-lg shadow-amber-500/10">Invia</button>
+                </div>
+            </div>
+
+            <div id="screen-admin" class="bg-stone-900 border border-stone-800 rounded-2xl p-6 hidden shadow-2xl">
+                <div id="admin-login-box" class="space-y-4">
+                    <h2 class="text-xl font-bold text-amber-400 mb-2 text-center">🔐 Accesso Riservato Staff Mood</h2>
+                    <div>
+                        <label class="block text-sm text-stone-400 mb-1">Username</label>
+                        <input type="text" id="admin-username" placeholder="Inserisci username..." class="w-full bg-stone-950 border border-stone-700 rounded-xl p-3 text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-stone-400 mb-1">Password</label>
+                        <input type="password" id="admin-password" placeholder="••••••••" class="w-full bg-stone-950 border border-stone-700 rounded-xl p-3 text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+                    <button onclick="loginAdmin()" class="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 font-bold p-3 rounded-xl transition mt-2 hover:opacity-90">Effettua il Login</button>
+                </div>
+
+                <div id="admin-content-box" class="hidden space-y-4">
+                    <div class="flex items-center justify-between border-b border-stone-800 pb-3 mb-2">
+                        <h2 class="text-lg font-bold text-amber-400" id="admin-title">Pannello di Controllo</h2>
+                        <button onclick="logoutAdmin()" class="text-xs bg-red-950/40 hover:bg-red-900 text-red-300 border border-red-900/40 px-2 py-1 rounded transition">Logout Staff</button>
+                    </div>
+                    
+                    <div id="admin-projector-section" class="hidden">
+                        <button onclick="avviaProiezioneGiardino()" class="w-full bg-stone-950 border border-amber-500 text-amber-400 font-black p-4 rounded-xl text-sm transition hover:bg-stone-900 uppercase tracking-wider shadow-lg neon-border mb-4">
+                            📺 Apri Proiezione Giardino
+                        </button>
+                        <p class="text-xs text-stone-400 text-center italic">Le funzioni di gestione cassa ed erogazione shot sono disabilitate per questo account.</p>
+                    </div>
+                    
+                    <div id="admin-barman-section" class="hidden space-y-4">
+                        <div id="admin-matches-list" class="space-y-4"></div>
+                        <div class="border-t border-stone-800 pt-4 mt-6">
+                            <button onclick="resettareTutto()" class="w-full bg-red-950/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 rounded-xl p-2.5 text-xs font-bold transition">⚠️ Svuota Database Cloud Completo</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="projector-wrapper" class="hidden min-h-screen bg-stone-950 select-none overflow-hidden relative">
+        
+        <div class="absolute top-4 left-4 z-50 flex space-x-3">
+            <button onclick="chiudiProiezione()" class="bg-stone-900/80 hover:bg-stone-800 text-stone-400 px-4 py-2 rounded-xl text-xs font-bold transition border border-stone-700">ESC PROIEZIONE</button>
+            <button onclick="toggleFullScreen()" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 px-4 py-2 rounded-xl text-xs font-bold transition border border-amber-500/40 shadow-lg shadow-amber-500/5">⛶ SCHERMO INTERO</button>
+        </div>
+        
+        <div class="projector-slide active">
+            <div class="flex flex-col items-center justify-center my-auto text-center w-full">
+                <img src="mood.jpg" class="w-40 h-40 rounded-full border-4 border-amber-400 p-1.5 mb-8 object-cover shadow-2xl" onerror="this.src='https://via.placeholder.com/150'">
+                <h1 class="text-8xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-400 to-yellow-500 neon-text uppercase">MOOD MATCH</h1>
+                <p class="text-3xl text-stone-300 mt-4 font-bold">Trova chi ti piace nel locale. ORA.</p>
+                <div class="mt-12 border-2 border-dashed border-amber-500/30 px-8 py-4 rounded-2xl bg-stone-900/40"><p class="text-amber-400 font-black text-xl tracking-wider">📲 INQUADRA IL QR CODE SUL TAVOLO PER ENTRARE IN GIOCO</p></div>
+            </div>
+        </div>
+
+        <div class="projector-slide">
+            <div class="flex justify-between items-center border-b border-stone-900 pb-6"><h2 class="text-6xl font-black text-white uppercase tracking-tight">01. Mettici la faccia</h2><span class="text-amber-400 font-black text-xl bg-stone-900 px-4 py-2 rounded-xl tracking-widest">STEP 1</span></div>
+            <div class="grid grid-cols-12 gap-12 items-center my-auto">
+                <div class="col-span-8 space-y-6">
+                    <p class="text-4xl text-stone-200 font-medium leading-relaxed">Inserisci il tuo nome e scatta un <span class="text-amber-400 font-bold">selfie istantaneo</span> direttamente dal tuo tavolo.</p>
+                    <p class="text-xl text-stone-400 italic">🚫 Niente foto vecchie dalla galleria, niente filtri fake. Solo persone reali presenti al Mood in questo preciso momento!</p>
+                </div>
+                <div class="col-span-4 text-center text-9xl bg-stone-900 p-12 rounded-3xl border border-stone-800">📸</div>
+            </div>
+            <p class="text-sm text-stone-500 uppercase tracking-widest text-center">Mood Lounge Bar • Match & Shot Edition</p>
+        </div>
+
+        <div class="projector-slide">
+            <div class="flex justify-between items-center border-b border-stone-900 pb-6"><h2 class="text-6xl font-black text-white uppercase tracking-tight">02. Guarda chi c'è intorno</h2><span class="text-amber-400 font-black text-xl bg-stone-900 px-4 py-2 rounded-xl tracking-widest">STEP 2</span></div>
+            <div class="grid grid-cols-12 gap-12 items-center my-auto">
+                <div class="col-span-8 space-y-6">
+                    <p class="text-4xl text-stone-200 font-medium leading-relaxed">Sfoglia i profili di chi è seduto in giardino o al bancone.</p>
+                    <div class="text-2xl text-stone-300 space-y-3">
+                        <p>❤️ Ti piace qualcuno? Clicca sul <span class="text-red-500 font-bold">Cuore</span>.</p>
+                        <p>❌ Vuoi passare oltre? Clicca sulla <span class="text-red-400 font-bold">Croce</span>.</p>
+                    </div>
+                    <p class="text-lg text-amber-400 font-bold bg-amber-500/5 border border-amber-500/20 p-4 rounded-xl inline-block">⚠️ Attenzione: Hai solo 3 Like a disposizione! Poi scatta il cooldown. Usali bene!</p>
+                </div>
+                <div class="col-span-4 text-center text-9xl bg-stone-900 p-12 rounded-3xl border border-stone-800">❤️</div>
+            </div>
+            <p class="text-sm text-stone-500 uppercase tracking-widest text-center">Mood Lounge Bar • Match & Shot Edition</p>
+        </div>
+
+        <div class="projector-slide">
+            <div class="flex justify-between items-center border-b border-stone-900 pb-6"><h2 class="text-6xl font-black text-white uppercase tracking-tight">03. Se il like è reciproco...</h2><span class="text-amber-400 font-black text-xl bg-stone-900 px-4 py-2 rounded-xl tracking-widest">STEP 3</span></div>
+            <div class="text-center my-auto space-y-6">
+                <h3 class="text-8xl font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-300 neon-text uppercase">🔥 IT'S A MATCH!</h3>
+                <p class="text-3xl text-stone-300 max-w-5xl mx-auto leading-relaxed">Si attiva all'istante una <span class="text-white font-bold">chat privata</span> sul telefono. Potete scrivervi per capire in quale tavolo vi trovate o... semplicemente voltarvi a guardare!</p>
+            </div>
+            <p class="text-sm text-stone-500 uppercase tracking-widest text-center">Mood Lounge Bar • Match & Shot Edition</p>
+        </div>
+
+        <div class="projector-slide">
+            <div class="flex justify-between items-center border-b border-stone-900 pb-6"><h2 class="text-6xl font-black text-white uppercase tracking-tight">04. Il premio del coraggio</h2><span class="text-amber-400 font-black text-xl bg-stone-900 px-4 py-2 rounded-xl tracking-widest">STEP 4</span></div>
+            <div class="grid grid-cols-12 gap-12 items-center my-auto">
+                <div class="col-span-8 space-y-6">
+                    <h3 class="text-5xl font-black text-amber-400 uppercase tracking-wide">🥂 VINCETE UNO SHOT OMAGGIO!</h3>
+                    <p class="text-3xl text-stone-300 leading-relaxed">Andate insieme al bancone e mostrate la schermata del Match attivo al barista. Lo Staff convaliderà il premio dal pannello di controllo e... si brinda alla nuova conoscenza!</p>
+                </div>
+                <div class="col-span-4 text-center text-9xl bg-stone-900 p-12 rounded-3xl border border-stone-800">🥃</div>
+            </div>
+            <p class="text-sm text-stone-500 uppercase tracking-widest text-center">Mood Lounge Bar • Match & Shot Edition</p>
+        </div>
+
+        <div class="projector-slide">
+            <h2 class="text-5xl font-black text-white uppercase tracking-widest text-center mt-4">GIOCA ORA A <span class="text-amber-400 neon-text">MOOD MATCH</span></h2>
+            <div class="flex justify-center items-center space-x-16 my-auto">
+                <div class="space-y-6 text-left text-2xl text-stone-300">
+                    <div class="flex items-center space-x-6"><span class="bg-amber-400 text-stone-950 font-black w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">1</span><p><strong>SCANNERIZZA</strong> il QR Code 📲</p></div>
+                    <div class="flex items-center space-x-6"><span class="bg-amber-400 text-stone-950 font-black w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">2</span><p><strong>SCATTA</strong> il tuo selfie live 📸</p></div>
+                    <div class="flex items-center space-x-6"><span class="bg-amber-400 text-stone-950 font-black w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">3</span><p><strong>VOTA</strong> chi ti piace nel locale ❤️</p></div>
+                    <div class="flex items-center space-x-6"><span class="bg-amber-400 text-stone-950 font-black w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">4</span><p><strong>INCONTRA</strong> il tuo Match & ritira lo shot! 🥂</p></div>
+                </div>
+                <div class="w-56 h-56 bg-white text-stone-950 rounded-3xl flex flex-col items-center justify-center p-4 border-4 border-amber-400 font-bold text-sm shadow-2xl"><span class="text-5xl mb-2">📲</span>IL TUO QR CODE</div>
+            </div>
+            <p class="text-2xl italic text-stone-400 font-medium text-center mb-4">"Il ghiaccio l'abbiamo già rotto noi, voi dovete solo metterlo nel bicchiere."</p>
+        </div>
+    </div>
+
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        const firebaseConfig = {
+          apiKey: "AIzaSyDmLp1DwC1CLN-JonVvXjwgTx00sEcrzUs",
+          authDomain: "barmatch-c40ff.firebaseapp.com",
+          databaseURL: "https://barmatch-c40ff-default-rtdb.europe-west1.firebasedatabase.app",
+          projectId: "barmatch-c40ff",
+          storageBucket: "barmatch-c40ff.firebasestorage.app",
+          messagingSenderId: "585815472788",
+          appId: "1:585815472788:web:b0aa828759a6a948439281",
+          measurementId: "G-1NSG9DLKDQ"
+        };
+        const app = initializeApp(firebaseConfig);
+        const realtimeDb = getDatabase(app);
+
+        let db = { users: [], likes: [], matches: [], messages: [] };
+        let currentUser = null;
+        let activeChatMatchId = null;
+        let videoStream = null;
+        let selfieCatturatoBase64 = null;
+        let isAdminAuthenticated = false;
+        let adminRole = null; 
+        let isFallbackMode = false;
+        let currentCardIndex = 0;
+        let lastRenderedUserId = null;
+        let lastMatchesHash = "";
+        let currentScreen = "screen-register";
+        let loopProiettoreInterval = null;
+
+        onValue(ref(realtimeDb, 'users'), (snapshot) => {
+            const data = snapshot.val() || {};
+            db.users = Object.values(data);
+            controllaUtenteCorrente();
+            aggiornaUI();
+        });
+        onValue(ref(realtimeDb, 'likes'), (snapshot) => {
+            const data = snapshot.val() || {};
+            db.likes = Object.values(data);
+            aggiornaUI();
+        });
+        onValue(ref(realtimeDb, 'matches'), (snapshot) => {
+            const data = snapshot.val() || {};
+            db.matches = Object.keys(data).map(k => ({ id: k, ...data[k] }));
+            aggiornaUI();
+        });
+        onValue(ref(realtimeDb, 'messages'), (snapshot) => {
+            const data = snapshot.val() || {};
+            db.messages = Object.keys(data).map(k => ({ id: k, ...data[k] }));
+            aggiornaUI();
+        });
+
+        function controllaUtenteCorrente() {
+            const myId = localStorage.getItem('bm_currentUserId');
+            if (myId) {
+                const foundUser = db.users.find(u => String(u.id) === String(myId));
+                if (foundUser) {
+                    currentUser = foundUser;
+                    if (currentScreen === "screen-register") mostraSchermata('screen-feed');
+                }
+            }
+        }
+
+        function mostraSchermata(id) {
+            if (id === 'screen-register' && currentUser) id = 'screen-feed';
+            currentScreen = id;
+            ['screen-register', 'screen-feed', 'screen-chat', 'screen-admin'].forEach(s => {
+                document.getElementById(s).classList.add('hidden');
+            });
+            document.getElementById(id).classList.remove('hidden');
+            if (id !== 'screen-register' && videoStream) stopVideoFeed();
+            aggiornaUI();
+        }
+
+        function aggiornaUI() {
+            if (currentUser) {
+                const counterDisplay = document.getElementById('likes-counter');
+                if (counterDisplay) counterDisplay.innerText = `${currentUser.likesCount} / 3`;
+            }
+            if (currentScreen === 'screen-feed') renderFeed();
+            if (currentScreen === 'screen-chat') renderMessaggiChat();
+            if (currentScreen === 'screen-admin') renderAdminPanel();
+        }
+
+        window.registraUtente = function() {
+            if (currentUser) { mostraSchermata('screen-feed'); return; }
+            const name = document.getElementById('reg-name').value.trim();
+            if (!name || !selfieCatturatoBase64) { alert("Inserisci il tuo nome e fai una foto!"); return; }
+            
+            const btn = document.getElementById('btn-register-final');
+            btn.disabled = true;
+            btn.innerText = "Ingresso al locale...";
+
+            const userId = 'usr_' + Date.now();
+            const userObj = { id: userId, name: name, photo: selfieCatturatoBase64, likesCount: 3, cooldownEnd: null };
+            
+            localStorage.setItem('bm_currentUserId', String(userId));
+            currentUser = userObj;
+            set(ref(realtimeDb, 'users/' + userId), userObj).then(() => { 
+                mostraSchermata('screen-feed');
+            }).catch(e => {
+                alert("Errore di connessione. Riprova.");
+                btn.disabled = false;
+                btn.innerText = "Entra nel Locale";
+            });
+        };
+
+        function renderFeed() {
+            if (!currentUser) return;
+            const matchesContainer = document.getElementById('matches-horizontal-container');
+            const avatarRow = document.getElementById('matches-avatar-row');
+            const mieiMatches = db.matches.filter(m => m.u1 === currentUser.id || m.u2 === currentUser.id);
+            let matchesHash = mieiMatches.map(m => m.id + "_" + m.shotClaimed).join(",");
+            
+            if (mieiMatches.length > 0) {
+                matchesContainer.classList.remove('hidden');
+                if (matchesHash !== lastMatchesHash) {
+                    avatarRow.innerHTML = "";
+                    mieiMatches.forEach(m => {
+                        const partnerId = m.u1 === currentUser.id ? m.u2 : m.u1;
+                        const partner = db.users.find(u => u.id === partnerId);
+                        if (!partner) return;
+                        const item = document.createElement('div');
+                        item.className = "flex flex-col items-center space-y-1 flex-shrink-0 cursor-pointer text-center group";
+                        item.onclick = () => apriChat(m.id);
+                        let borderStyle = m.shotClaimed ? "border-stone-700 opacity-60" : "border-amber-400 animate-pulse";
+                        item.innerHTML = `<div class="relative"><img src="${partner.photo}" class="w-14 h-14 rounded-full object-cover border-2 ${borderStyle}">${!m.shotClaimed ? '<span class="absolute top-0 right-0 w-3 h-3 bg-amber-400 rounded-full border border-stone-900 animate-bounce"></span>' : ''}</div><span class="text-[10px] text-stone-300 max-w-[60px] truncate block">${partner.name}</span>`;
+                        avatarRow.appendChild(item);
+                    });
+                    lastMatchesHash = matchesHash;
+                }
+            } else { 
+                matchesContainer.classList.add('hidden');
+                lastMatchesHash = ""; 
+            }
+
+            const feedContainer = document.getElementById('users-feed-container');
+            const utentiDisponibili = db.users.filter(u => {
+                if (!u || !u.id || !currentUser || !currentUser.id) return false;
+                if (String(u.id) === String(currentUser.id)) return false;
+                if (u.name === currentUser.name && u.photo === currentUser.photo) return false;
+                
+                const giaMatchati = db.matches.some(m => (m.u1 === currentUser.id && m.u2 === u.id) || (m.u1 === u.id && m.u2 === currentUser.id));
+                if (giaMatchati) return false;
+                if (db.likes.some(l => l.from === currentUser.id && l.to === u.id)) return false;
+                
+                return true;
+            });
+
+            if (utentiDisponibili.length === 0) {
+                if (lastRenderedUserId !== "empty_pool") {
+                    feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]"><span class="text-4xl mb-4 animate-bounce">✨</span><h4 class="font-bold text-lg text-white">Giro completato!</h4><p class="text-xs text-stone-400 mt-2 max-w-[220px] mx-auto">Nessun utente nuovo nei paraggi per ora. Guarda in alto se hai già dei Match!</p></div>`;
+                    lastRenderedUserId = "empty_pool";
+                }
+                return;
+            }
+
+            if (currentCardIndex >= utentiDisponibili.length) currentCardIndex = 0;
+            let u = utentiDisponibili[currentCardIndex];
+            
+            if (lastRenderedUserId !== u.id) {
+                feedContainer.innerHTML = `<div class="flex items-center justify-between space-x-3 max-w-sm mx-auto my-2"><button onclick="saltaUtente()" class="w-14 h-14 bg-stone-900 border border-stone-800 text-red-500 text-xl rounded-full flex items-center justify-center shadow-xl active:scale-90 flex-shrink-0 hover:bg-stone-800 transition">❌</button><div class="flex-1 bg-stone-900 border border-stone-800 rounded-3xl overflow-hidden shadow-2xl relative aspect-[3/4] max-w-[270px] mx-auto"><img src="${u.photo}" class="w-full h-full object-cover select-none pointer-events-none"><div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-stone-950 via-stone-950/80 to-transparent p-4 pt-12"><h4 class="font-black text-2xl text-white tracking-wide truncate">${u.name}</h4><p class="text-xs text-amber-400 flex items-center mt-1 font-semibold"><span class="inline-block w-2.5 h-2.5 bg-amber-400 rounded-full mr-2 animate-pulse"></span>Al Mood ora</p></div></div><button onclick="mettiLikeTinder('${u.id}')" class="w-14 h-14 bg-stone-900 border border-stone-800 text-red-500 text-xl rounded-full flex items-center justify-center shadow-xl active:scale-90 flex-shrink-0 neon-border-heart hover:bg-stone-800 transition">❤️</button></div>`;
+                lastRenderedUserId = u.id;
+            }
+        }
+
+        window.saltaUtente = function() { 
+            currentCardIndex++;
+            renderFeed(); 
+        };
+
+        window.mettiLikeTinder = function(targetUserId) {
+            if (!currentUser || (currentUser.cooldownEnd && Date.now() < currentUser.cooldownEnd) || currentUser.likesCount <= 0) return;
+            
+            const giaMatchati = db.matches.some(m => (m.u1 === currentUser.id && m.u2 === targetUserId) || (m.u1 === targetUserId && m.u2 === currentUser.id));
+            if (giaMatchati) return;
+
+            push(ref(realtimeDb, 'likes'), { from: currentUser.id, to: targetUserId, time: Date.now() });
+            
+            if (db.likes.some(l => l.from === targetUserId && l.to === currentUser.id)) {
+                const matchId = push(ref(realtimeDb, 'matches')).key;
+                set(ref(realtimeDb, `matches/${matchId}`), { u1: currentUser.id, u2: targetUserId, shotClaimed: false });
+                const dieciMinuti = Date.now() + (10 * 60 * 1000);
+                update(ref(realtimeDb, `users/${currentUser.id}`), { cooldownEnd: dieciMinuti, likesCount: 0 });
+                update(ref(realtimeDb, `users/${targetUserId}`), { cooldownEnd: dieciMinuti, likesCount: 0 });
+                alert(`🎉 MATCH AVVENUTO! Vi siete scambiati un voto positivo! Andate al bancone del Mood!`);
+                apriChat(matchId);
+            } else {
+                if (currentUser.likesCount === 1) {
+                    update(ref(realtimeDb, `users/${currentUser.id}`), { cooldownEnd: Date.now() + (10 * 60 * 1000), likesCount: 0 });
+                } else { 
+                    update(ref(realtimeDb, `users/${currentUser.id}`), { likesCount: currentUser.likesCount - 1 });
+                }
+            }
+        };
+
+        function apriChat(matchId) { 
+            activeChatMatchId = matchId; 
+            mostraSchermata('screen-chat'); 
+        }
+        
+        window.tornaAlFeed = function() { 
+            activeChatMatchId = null;
+            lastRenderedUserId = null; 
+            mostraSchermata('screen-feed'); 
+        };
+
+        window.inviaMessaggio = function() {
+            const input = document.getElementById('chat-input');
+            const testo = input.value.trim(); 
+            if (!testo || !activeChatMatchId) return;
+            push(ref(realtimeDb, 'messages'), { matchId: activeChatMatchId, sender: currentUser.id, text: testo, time: Date.now() });
+            input.value = "";
+        };
+
+        function renderMessaggiChat() {
+            if (!activeChatMatchId) return;
+            const container = document.getElementById('chat-messages'); 
+            const statusBox = document.getElementById('shot-status-box');
+            const match = db.matches.find(m => m.id === activeChatMatchId); 
+            if (!match) return;
+            
+            if (match.shotClaimed) {
+                statusBox.className = "mt-2 p-3 bg-emerald-950/40 border border-emerald-800 text-emerald-400 rounded-xl text-center neon-border";
+                statusBox.innerHTML = `<p class="uppercase tracking-wider font-bold">🏆 SHOT EROGATI DAL BARISTA! ✓</p>`;
+            } else {
+                statusBox.className = "mt-2 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl text-center animate-pulse";
+                statusBox.innerHTML = `<p class="uppercase tracking-wider font-bold">🎁 PRESENTATE QUESTA SCHERMATA AL BANCONE PER LO SHOT OMAGGIO</p>`;
+            }
+            container.innerHTML = "";
+            db.messages.filter(m => m.matchId === activeChatMatchId).forEach(m => {
+                const div = document.createElement('div');
+                div.className = m.sender === currentUser.id ? "text-right" : "text-left";
+                div.innerHTML = m.sender === currentUser.id ? `<span class="inline-block bg-amber-500 text-stone-950 rounded-2xl rounded-tr-none px-3 py-1.5 max-w-[80%] font-medium shadow-md">${m.text}</span>` : `<span class="inline-block bg-stone-800 text-stone-200 rounded-2xl rounded-tl-none px-3 py-1.5 max-w-[80%] shadow-md">${m.text}</span>`;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+            const partnerId = match.u1 === currentUser.id ? match.u2 : match.u1;
+            const partner = db.users.find(u => u.id === partnerId);
+            if(partner){ 
+                document.getElementById('chat-partner-name').innerText = partner.name; 
+                document.getElementById('chat-partner-img').src = partner.photo;
+            }
+        }
+
+        setInterval(() => {
+            if (!currentUser) return;
+            const now = Date.now(); 
+            const timerBox = document.getElementById('cooldown-box');
+            const timerDisplay = document.getElementById('cooldown-timer'); 
+            const counterDisplay = document.getElementById('likes-counter');
+            
+            if (currentUser.cooldownEnd && now < currentUser.cooldownEnd) {
+                if(timerBox) timerBox.classList.remove('hidden'); 
+                if(counterDisplay) counterDisplay.innerText = "0 / 3";
+                const timeLeft = currentUser.cooldownEnd - now;
+                if(timerDisplay) timerDisplay.innerText = `${Math.floor(timeLeft / 60000)}:${Math.floor((timeLeft % 60000) / 1000) < 10 ? '0' : ''}${Math.floor((timeLeft % 60000) / 1000)}`;
+            } else {
+                if (currentUser.cooldownEnd) update(ref(realtimeDb, `users/${currentUser.id}`), { cooldownEnd: null, likesCount: 3 });
+                if(timerBox) timerBox.classList.add('hidden');
+            }
+        }, 1000);
+
+        window.loginAdmin = function() {
+            const user = document.getElementById('admin-username').value.trim();
+            const pass = document.getElementById('admin-password').value;
+            
+            if (user === "Mood" && pass === "Mood26!") {
+                isAdminAuthenticated = true;
+                adminRole = "barman";
+                pulisciCampiLoginAdmin();
+                renderAdminPanel();
+            } else if (user === "Staff" && pass === "Staff26!") {
+                isAdminAuthenticated = true;
+                adminRole = "presenter";
+                pulisciCampiLoginAdmin();
+                renderAdminPanel();
+            } else {
+                alert("Credenziali errate.");
+            }
+        };
+
+        function pulisciCampiLoginAdmin() {
+            document.getElementById('admin-username').value = "";
+            document.getElementById('admin-password').value = "";
+        }
+
+        window.logoutAdmin = function() { 
+            isAdminAuthenticated = false;
+            adminRole = null; 
+            renderAdminPanel(); 
+        };
+
+        function renderAdminPanel() {
+            const loginBox = document.getElementById('admin-login-box');
+            const contentBox = document.getElementById('admin-content-box');
+            
+            if (!isAdminAuthenticated) { 
+                loginBox.classList.remove('hidden');
+                contentBox.classList.add('hidden'); 
+                return; 
+            }
+            
+            loginBox.classList.add('hidden');
+            contentBox.classList.remove('hidden');
+            
+            const titleElement = document.getElementById('admin-title');
+            const projectorSection = document.getElementById('admin-projector-section');
+            const barmanSection = document.getElementById('admin-barman-section');
+            
+            if (adminRole === "presenter") {
+                titleElement.innerText = "Pannello Presentatore (Proiettore)";
+                projectorSection.classList.remove('hidden');
+                barmanSection.classList.add('hidden');
+            } else if (adminRole === "barman") {
+                titleElement.innerText = "Pannello Gestione Barista";
+                projectorSection.classList.add('hidden');
+                barmanSection.classList.remove('hidden');
+                
+                const container = document.getElementById('admin-matches-list'); 
+                container.innerHTML = "";
+                
+                if (db.matches.length === 0) { 
+                    container.innerHTML = `<p class="text-center text-sm text-stone-500 py-8">Nessun match attivo nel locale per ora.</p>`;
+                    return; 
+                }
+                
+                db.matches.forEach(m => {
+                    const u1 = db.users.find(u => u.id === m.u1); 
+                    const u2 = db.users.find(u => u.id === m.u2); 
+                    if (!u1 || !u2) return;
+                    
+                    const item = document.createElement('div'); 
+                    item.className = "bg-stone-950 p-4 border border-stone-800 rounded-xl flex flex-col space-y-3";
+                    let adminBtn = m.shotClaimed ? `<span class="w-full text-center block bg-stone-900 text-emerald-400 border border-emerald-900/40 text-xs font-bold p-2 rounded-lg uppercase">Shot Erogati ✓</span>` : `<button onclick="convalidaShotAdmin('${m.id}')" class="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">Convalida e Offri Shot 🥂</button>`;
+                    item.innerHTML = `<div class="flex items-center justify-around text-center"><div><img src="${u1.photo}" class="w-12 h-12 rounded-full mx-auto object-cover border-2 border-stone-700"><p class="text-xs font-bold mt-1 text-stone-300">${u1.name}</p></div><div class="text-amber-400 font-bold text-xl neon-text">⚡</div><div><img src="${u2.photo}" class="w-12 h-12 rounded-full mx-auto object-cover border-2 border-stone-700"><p class="text-xs font-bold mt-1 text-stone-300">${u2.name}</p></div></div>${adminBtn}`;
+                    container.appendChild(item);
+                });
+            }
+        }
+
+        window.convalidaShotAdmin = function(matchId) { 
+            update(ref(realtimeDb, `matches/${matchId}`), { shotClaimed: true });
+        };
+        
+        window.resettareTutto = function() { 
+            if(confirm("Cancellare tutto il database cloud?")) { 
+                stopVideoFeed(); 
+                localStorage.clear(); 
+                set(ref(realtimeDb, '/'), null).then(() => location.reload()); 
+            } 
+        };
+        
+        window.switchRole = function(role) { 
+            if (role === "admin") mostraSchermata('screen-admin'); 
+            else mostraSchermata(currentUser ? 'screen-feed' : 'screen-register'); 
+        };
+
+        // --- GESTIONE PROIETTORE CON SCHERMO INTERO MANUALE ---
+        
+        window.avviaProiezioneGiardino = function() {
+            document.getElementById('app-wrapper').classList.add('hidden');
+            document.getElementById('projector-wrapper').classList.remove('hidden');
+            
+            let slides = document.querySelectorAll('.projector-slide');
+            let indexCorrente = 0;
+            
+            loopProiettoreInterval = setInterval(() => {
+                slides[indexCorrente].classList.remove('active');
+                indexCorrente = (indexCorrente + 1) % slides.length;
+                slides[indexCorrente].classList.add('active');
+            }, 15000);
+        };
+
+        window.chiudiProiezione = function() {
+            clearInterval(loopProiettoreInterval);
+            
+            if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                else if (document.msExitFullscreen) document.msExitFullscreen();
+                else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+            }
+            
+            document.getElementById('projector-wrapper').classList.add('hidden');
+            document.getElementById('app-wrapper').classList.remove('hidden');
+        };
+
+        // NUOVA FUNZIONE PER IL BOTTONE SCHERMO INTERO MANUALE
+        window.toggleFullScreen = function() {
+            const elem = document.documentElement; // Mette l'intera pagina a tutto schermo
+            
+            if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen();
+                } else if (elem.msRequestFullscreen) {
+                    elem.msRequestFullscreen();
+                } else if (elem.mozRequestFullScreen) {
+                    elem.mozRequestFullScreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                }
+            }
+        };
+
+        // GESTIONE CAM NATIVA MOBILE
+        const videoFeed = document.getElementById('video-feed'); 
+        const photoCanvas = document.getElementById('photo-canvas');
+        const fallbackMsg = document.getElementById('fallback-msg'); 
+        const btnCameraAction = document.getElementById('btn-camera-action');
+        const btnRetake = document.getElementById('btn-retake'); 
+        const cameraText = document.getElementById('camera-text');
+        const cameraIcon = document.getElementById('camera-icon');
+        const btnRegisterFinal = document.getElementById('btn-register-final');
+        let cameraState = 0;
+
+        window.gestisciAzioneFotocamera = async function() { 
+            if (isFallbackMode) { document.getElementById('camera-fallback-input').click(); return; } 
+            if (cameraState === 0) await startVideoFeed(); 
+            else if (cameraState === 1) catturaSelfie(); 
+        };
+        
+        async function startVideoFeed() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 400, height: 400 }, audio: false });
+                videoFeed.srcObject = videoStream; 
+                videoFeed.classList.remove('hidden'); 
+                photoCanvas.classList.add('hidden'); 
+                fallbackMsg.classList.add('hidden');
+                cameraState = 1; 
+                cameraText.innerText = "Scatta Selfie ORA"; 
+                cameraIcon.innerText = "📸";
+                btnCameraAction.className = "bg-amber-400 text-stone-950 text-xs font-black px-6 py-2 rounded-full transition animate-pulse shadow-lg shadow-amber-500/20"; 
+                btnRetake.classList.add('hidden');
+            } catch (err) {
+                isFallbackMode = true;
+                videoFeed.classList.add('hidden'); 
+                fallbackMsg.classList.remove('hidden');
+                cameraText.innerText = "Scatta Foto Istantanea"; 
+                cameraIcon.innerText = "📷"; 
+                btnCameraAction.className = "bg-amber-500 text-stone-950 text-xs font-bold px-6 py-2 rounded-full transition";
+                document.getElementById('camera-fallback-input').click();
+            }
+        }
+        
+        window.gestisciFotoFallback = function(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const context = photoCanvas.getContext('2d');
+                        photoCanvas.width = 400; photoCanvas.height = 400;
+                        let minSide = Math.min(img.width, img.height);
+                        context.drawImage(img, (img.width - minSide)/2, (img.height - minSide)/2, minSide, minSide, 0, 0, 400, 400);
+                        selfieCatturatoBase64 = photoCanvas.toDataURL('image/jpeg', 0.5);
+                        fallbackMsg.classList.add('hidden'); 
+                        photoCanvas.classList.remove('hidden'); 
+                        btnCameraAction.classList.add('hidden');
+                        btnRetake.classList.remove('hidden');
+                        abilitaRegistrazione();
+                    }; 
+                    img.src = e.target.result;
+                }; 
+                reader.readAsDataURL(input.files[0]);
+            }
+        };
+
+        function catturaSelfie() {
+            if (!videoStream) return;
+            const context = photoCanvas.getContext('2d'); 
+            photoCanvas.width = 400; photoCanvas.height = 400;
+            context.translate(400, 0); 
+            context.scale(-1, 1); 
+            context.drawImage(videoFeed, 0, 0, 400, 400);
+            selfieCatturatoBase64 = photoCanvas.toDataURL('image/jpeg', 0.5); 
+            stopVideoFeed();
+            videoFeed.classList.add('hidden'); 
+            photoCanvas.classList.remove('hidden'); 
+            cameraState = 2; 
+            btnCameraAction.classList.add('hidden'); 
+            btnRetake.classList.remove('hidden');
+            abilitaRegistrazione();
+        }
+        
+        window.resetFotocamera = function() {
+            selfieCatturatoBase64 = null;
+            photoCanvas.classList.add('hidden'); 
+            btnRetake.classList.add('hidden'); 
+            btnCameraAction.classList.remove('hidden'); 
+            disabilitaRegistrazione();
+            if (isFallbackMode) document.getElementById('camera-fallback-input').click(); 
+            else { cameraState = 0; startVideoFeed(); }
+        };
+        
+        function stopVideoFeed() { 
+            if (videoStream) { 
+                videoStream.getTracks().forEach(t => t.stop());
+                videoStream = null; 
+            } 
+        }
+        
+        function abilitaRegistrazione() { 
+            btnRegisterFinal.className = "w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 font-black p-3 rounded-xl transition mt-4 neon-border shadow-lg shadow-amber-500/10";
+            btnRegisterFinal.innerText = "Entra nel Locale"; 
+            btnRegisterFinal.disabled = false; 
+        }
+        
+        function disabilitaRegistrazione() { 
+            btnRegisterFinal.className = "w-full bg-stone-800 text-stone-500 font-bold p-3 rounded-xl transition mt-4 cursor-not-allowed border border-stone-700";
+            btnRegisterFinal.innerText = "Scatta la foto per entrare"; 
+            btnRegisterFinal.disabled = true; 
+        }
+
+        mostraSchermata('screen-register');
+    </script>
+</body>
+</html>
