@@ -273,6 +273,7 @@
         const realtimeDb = getDatabase(app);
 
         let db = { users: [], likes: [], matches: [], messages: [] };
+        let globalData = { cooldownEnd: null };
         let currentUser = null;
         let activeChatMatchId = null;
         let videoStream = null;
@@ -307,6 +308,10 @@
             db.messages = Object.keys(data).map(k => ({ id: k, ...data[k] }));
             aggiornaUI();
         });
+        onValue(ref(realtimeDb, 'global'), (snapshot) => {
+            globalData = snapshot.val() || { cooldownEnd: null };
+            aggiornaUI();
+        });
 
         function controllaUtenteCorrente() {
             const myId = localStorage.getItem('bm_currentUserId');
@@ -333,7 +338,13 @@
         function aggiornaUI() {
             if (currentUser) {
                 const counterDisplay = document.getElementById('likes-counter');
-                if (counterDisplay) counterDisplay.innerText = `${currentUser.likesCount} / 3`;
+                if (counterDisplay) {
+                    if (globalData && globalData.cooldownEnd) {
+                        counterDisplay.innerText = "0 / 3";
+                    } else {
+                        counterDisplay.innerText = `${currentUser.likesCount} / 3`;
+                    }
+                }
             }
             if (currentScreen === 'screen-feed') renderFeed();
             if (currentScreen === 'screen-chat') renderMessaggiChat();
@@ -350,7 +361,7 @@
             btn.innerText = "Ingresso al locale...";
 
             const userId = 'usr_' + Date.now();
-            const userObj = { id: userId, name: name, photo: selfieCatturatoBase64, likesCount: 3, cooldownEnd: null };
+            const userObj = { id: userId, name: name, photo: selfieCatturatoBase64, likesCount: 3 };
             
             localStorage.setItem('bm_currentUserId', String(userId));
             currentUser = userObj;
@@ -393,6 +404,16 @@
             }
 
             const feedContainer = document.getElementById('users-feed-container');
+
+            // --- REQUISITO: BLOCCO SE SI HA UN MATCH ATTIVO ---
+            if (mieiMatches.length > 0) {
+                if (lastRenderedUserId !== "has_match") {
+                    feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]"><span class="text-4xl mb-4">🥂</span><h4 class="font-bold text-lg text-white">Hai un Match attivo!</h4><p class="text-xs text-stone-400 mt-2 max-w-[220px] mx-auto">Non puoi cercare altre persone finché hai un incontro attivo. Parla in chat o vai al bancone con il tuo partner!</p></div>`;
+                    lastRenderedUserId = "has_match";
+                }
+                return;
+            }
+
             const utentiDisponibili = db.users.filter(u => {
                 if (!u || !u.id || !currentUser || !currentUser.id) return false;
                 if (String(u.id) === String(currentUser.id)) return false;
@@ -428,9 +449,9 @@
         };
 
         window.mettiLikeTinder = function(targetUserId) {
-            if (!currentUser || (currentUser.cooldownEnd && Date.now() < currentUser.cooldownEnd) || currentUser.likesCount <= 0) return;
+            if (!currentUser || (globalData && globalData.cooldownEnd) || currentUser.likesCount <= 0) return;
             
-            const giaMatchati = db.matches.some(m => (m.u1 === currentUser.id && m.u2 === targetUserId) || (m.u1 === targetUserId && m.u2 === currentUser.id));
+            const giaMatchati = db.matches.some(m => m.u1 === currentUser.id || m.u2 === currentUser.id);
             if (giaMatchati) return;
 
             push(ref(realtimeDb, 'likes'), { from: currentUser.id, to: targetUserId, time: Date.now() });
@@ -438,14 +459,18 @@
             if (db.likes.some(l => l.from === targetUserId && l.to === currentUser.id)) {
                 const matchId = push(ref(realtimeDb, 'matches')).key;
                 set(ref(realtimeDb, `matches/${matchId}`), { u1: currentUser.id, u2: targetUserId, shotClaimed: false });
+                
+                // --- REQUISITO: TIMER UNIVERSALE DI 10 MINUTI ATTIVATO SUL DETTAGLIO GLOBALE ---
                 const dieciMinuti = Date.now() + (10 * 60 * 1000);
-                update(ref(realtimeDb, `users/${currentUser.id}`), { cooldownEnd: dieciMinuti, likesCount: 0 });
-                update(ref(realtimeDb, `users/${targetUserId}`), { cooldownEnd: dieciMinuti, likesCount: 0 });
+                set(ref(realtimeDb, 'global/cooldownEnd'), dieciMinuti);
+                
                 alert(`🎉 MATCH AVVENUTO! Vi siete scambiati un voto positivo! Andate al bancone del Mood!`);
                 apriChat(matchId);
             } else {
                 if (currentUser.likesCount === 1) {
-                    update(ref(realtimeDb, `users/${currentUser.id}`), { cooldownEnd: Date.now() + (10 * 60 * 1000), likesCount: 0 });
+                    const dieciMinuti = Date.now() + (10 * 60 * 1000);
+                    set(ref(realtimeDb, 'global/cooldownEnd'), dieciMinuti);
+                    update(ref(realtimeDb, `users/${currentUser.id}`), { likesCount: 0 });
                 } else { 
                     update(ref(realtimeDb, `users/${currentUser.id}`), { likesCount: currentUser.likesCount - 1 });
                 }
@@ -501,6 +526,7 @@
             }
         }
 
+        // --- REQUISITO: LOGICA DI AGGIORNAMENTO DEL TIMER UNIVERSALE GLOBALE ---
         setInterval(() => {
             if (!currentUser) return;
             const now = Date.now(); 
@@ -508,14 +534,20 @@
             const timerDisplay = document.getElementById('cooldown-timer'); 
             const counterDisplay = document.getElementById('likes-counter');
             
-            if (currentUser.cooldownEnd && now < currentUser.cooldownEnd) {
+            if (globalData && globalData.cooldownEnd) {
                 if(timerBox) timerBox.classList.remove('hidden'); 
                 if(counterDisplay) counterDisplay.innerText = "0 / 3";
-                const timeLeft = currentUser.cooldownEnd - now;
-                if(timerDisplay) timerDisplay.innerText = `${Math.floor(timeLeft / 60000)}:${Math.floor((timeLeft % 60000) / 1000) < 10 ? '0' : ''}${Math.floor((timeLeft % 60000) / 1000)}`;
+                
+                const timeLeft = globalData.cooldownEnd - now;
+                if (timeLeft > 0) {
+                    if(timerDisplay) timerDisplay.innerText = `${Math.floor(timeLeft / 60000)}:${Math.floor((timeLeft % 60000) / 1000) < 10 ? '0' : ''}${Math.floor((timeLeft % 60000) / 1000)}`;
+                } else {
+                    // Resta bloccato su "ATTESA STAFF" finché l'admin Mood non resetta manualmente
+                    if(timerDisplay) timerDisplay.innerText = "ATTESA STAFF";
+                }
             } else {
-                if (currentUser.cooldownEnd) update(ref(realtimeDb, `users/${currentUser.id}`), { cooldownEnd: null, likesCount: 3 });
                 if(timerBox) timerBox.classList.add('hidden');
+                if(counterDisplay) counterDisplay.innerText = `${currentUser.likesCount} / 3`;
             }
         }, 1000);
 
@@ -578,8 +610,27 @@
                 const container = document.getElementById('admin-matches-list'); 
                 container.innerHTML = "";
                 
+                // --- REQUISITO: BLOCCO GESTIONE RESET DEL TIMER UNIVERSALE PER ACCOUNT BARMAN "Mood" ---
+                const blockTimer = document.createElement('div');
+                blockTimer.className = "bg-stone-950 p-4 border border-amber-500/30 rounded-xl mb-4 text-center";
+                if (globalData && globalData.cooldownEnd) {
+                    const statusText = (globalData.cooldownEnd - Date.now() > 0) ? "In corso..." : "Scaduto (In attesa di sblocco)";
+                    blockTimer.innerHTML = `
+                        <p class="text-xs text-stone-400 uppercase font-black mb-2">⏱️ Stato Cooldown: <span class="text-amber-400">${statusText}</span></p>
+                        <button onclick="resettareTimerGlobale()" class="w-full bg-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">
+                            🔄 Sblocca/Resetta Cooldown Globale
+                        </button>
+                    `;
+                } else {
+                    blockTimer.innerHTML = `<p class="text-xs text-emerald-400 uppercase font-black">⏱️ Cooldown Globale Disattivo (Voti Liberi)</p>`;
+                }
+                container.appendChild(blockTimer);
+                
                 if (db.matches.length === 0) { 
-                    container.innerHTML = `<p class="text-center text-sm text-stone-500 py-8">Nessun match attivo nel locale per ora.</p>`;
+                    const noMatchesMsg = document.createElement('p');
+                    noMatchesMsg.className = "text-center text-sm text-stone-500 py-8";
+                    noMatchesMsg.innerText = "Nessun match attivo nel locale per ora.";
+                    container.appendChild(noMatchesMsg);
                     return; 
                 }
                 
@@ -589,7 +640,7 @@
                     if (!u1 || !u2) return;
                     
                     const item = document.createElement('div'); 
-                    item.className = "bg-stone-950 p-4 border border-stone-800 rounded-xl flex flex-col space-y-3";
+                    item.className = "bg-stone-950 p-4 border border-stone-800 rounded-xl flex flex-col space-y-3 mb-2";
                     let adminBtn = m.shotClaimed ? `<span class="w-full text-center block bg-stone-900 text-emerald-400 border border-emerald-900/40 text-xs font-bold p-2 rounded-lg uppercase">Shot Erogati ✓</span>` : `<button onclick="convalidaShotAdmin('${m.id}')" class="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">Convalida e Offri Shot 🥂</button>`;
                     item.innerHTML = `<div class="flex items-center justify-around text-center"><div><img src="${u1.photo}" class="w-12 h-12 rounded-full mx-auto object-cover border-2 border-stone-700"><p class="text-xs font-bold mt-1 text-stone-300">${u1.name}</p></div><div class="text-amber-400 font-bold text-xl neon-text">⚡</div><div><img src="${u2.photo}" class="w-12 h-12 rounded-full mx-auto object-cover border-2 border-stone-700"><p class="text-xs font-bold mt-1 text-stone-300">${u2.name}</p></div></div>${adminBtn}`;
                     container.appendChild(item);
@@ -597,15 +648,41 @@
             }
         }
 
+        // --- REQUISITO: RESET MANUALE TIMER DA PARTE DELL'ADMIN "Mood" ---
+        window.resettareTimerGlobale = function() {
+            if (confirm("Vuoi azzerare il timer universale sbloccando i 3 Like per tutti i profili registrati nel locale?")) {
+                const updates = {};
+                updates['global'] = null;
+                db.users.forEach(u => {
+                    updates[`users/${u.id}/likesCount`] = 3;
+                });
+                update(ref(realtimeDb), updates).then(() => {
+                    alert("Timer globale azzerato e Mi Piace ricaricati per tutti!");
+                });
+            }
+        };
+
         window.convalidaShotAdmin = function(matchId) { 
             update(ref(realtimeDb, `matches/${matchId}`), { shotClaimed: true });
         };
         
+        // --- REQUISITO: SVUOTA DATABASE (AZZERAMENTO MATCH, MESSAGGI E MI PIACE SUGLI UTENTI) ---
         window.resettareTutto = function() { 
-            if(confirm("Cancellare tutto il database cloud?")) { 
-                stopVideoFeed(); 
-                localStorage.clear(); 
-                set(ref(realtimeDb, '/'), null).then(() => location.reload()); 
+            if(confirm("Sei sicuro di voler svuotare i match e i messaggi? Questa azione azzera le interazioni mantenendo gli utenti pronti con 3 nuovi Like.")) { 
+                const updates = {};
+                updates['matches'] = null;
+                updates['messages'] = null;
+                updates['likes'] = null;
+                updates['global'] = null;
+                db.users.forEach(u => {
+                    updates[`users/${u.id}/likesCount`] = 3;
+                });
+                update(ref(realtimeDb), updates).then(() => {
+                    alert("Match, messaggi e voti eliminati dal cloud. Utenti ripristinati!");
+                    lastRenderedUserId = null;
+                    activeChatMatchId = null;
+                    mostraSchermata('screen-feed');
+                });
             } 
         };
         
@@ -644,9 +721,8 @@
             document.getElementById('app-wrapper').classList.remove('hidden');
         };
 
-        // NUOVA FUNZIONE PER IL BOTTONE SCHERMO INTERO MANUALE
         window.toggleFullScreen = function() {
-            const elem = document.documentElement; // Mette l'intera pagina a tutto schermo
+            const elem = document.documentElement; 
             
             if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
                 if (elem.requestFullscreen) {
@@ -784,3 +860,4 @@
     </script>
 </body>
 </html>
+
