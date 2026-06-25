@@ -13,15 +13,13 @@
         .neon-border-heart { box-shadow: 0 0 12px #ef4444, 0 0 24px rgba(239, 68, 68, 0.3); }
         
         #video-container {
-            position: relative;
-            width: 100%;
+            position: relative; width: 100%;
             padding-bottom: 100%;
             overflow: hidden;
             background-color: #1c1917;
         }
         #video-feed, #photo-canvas {
-            position: absolute;
-            top: 0;
+            position: absolute; top: 0;
             left: 0;
             width: 100%;
             height: 100%;
@@ -32,8 +30,7 @@
         .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 
         .projector-slide {
-            width: 100vw;
-            height: 100vh;
+            width: 100vw; height: 100vh;
             display: none;
             flex-direction: column;
             justify-content: space-between;
@@ -128,6 +125,7 @@
                     <button onclick="tornaAlFeed()" class="text-xs bg-stone-800 text-stone-400 hover:text-stone-200 px-3 py-1 rounded-lg transition">Chiudi</button>
                 </div>
                 <div id="shot-status-box" class="mt-2 p-3 rounded-xl text-center text-xs font-bold"></div>
+                
                 <div id="chat-messages" class="flex-1 overflow-y-auto my-4 space-y-2 p-2 bg-stone-950 border border-stone-800/60 rounded-xl text-sm"></div>
                 <div class="flex space-x-2">
                     <input type="text" id="chat-input" placeholder="Scrivi qualcosa..." class="flex-1 bg-stone-950 border border-stone-700 rounded-xl p-2.5 text-white text-sm focus:outline-none focus:border-amber-400 transition">
@@ -176,7 +174,6 @@
 
 
     <div id="projector-wrapper" class="hidden min-h-screen bg-stone-950 select-none overflow-hidden relative">
-        
         <div class="absolute top-4 left-4 z-50 flex space-x-3">
             <button onclick="chiudiProiezione()" class="bg-stone-900/80 hover:bg-stone-800 text-stone-400 px-4 py-2 rounded-xl text-xs font-bold transition border border-stone-700">ESC PROIEZIONE</button>
             <button onclick="toggleFullScreen()" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 px-4 py-2 rounded-xl text-xs font-bold transition border border-amber-500/40 shadow-lg shadow-amber-500/5">⛶ SCHERMO INTERO</button>
@@ -259,6 +256,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, push, onValue, update, remove, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        
         const firebaseConfig = {
           apiKey: "AIzaSyDmLp1DwC1CLN-JonVvXjwgTx00sEcrzUs",
           authDomain: "barmatch-c40ff.firebaseapp.com",
@@ -272,11 +270,18 @@
         const app = initializeApp(firebaseConfig);
         const realtimeDb = getDatabase(app);
 
-        // db.matchHistory: storico permanente delle coppie che si sono già matchate
-        // (sopravvive a tutti i reset di sessione, finché non si svuota il DB intero)
+        // --- RISOLUZIONE PROBLEMA TIMER (SINCRONIZZAZIONE SERVER) ---
+        let serverTimeOffset = 0;
+        onValue(ref(realtimeDb, '.info/serverTimeOffset'), (snap) => {
+            serverTimeOffset = snap.val() || 0;
+        });
+
+        // Questa funzione garantisce che il tempo sia uguale per tutti i telefoni!
+        function getNetworkTime() {
+            return Date.now() + serverTimeOffset;
+        }
+
         let db = { users: [], likes: [], matches: [], messages: [], matchHistory: [] };
-        // globalData.sessionEnd: timestamp di fine sessione (10 min dopo lo start)
-        // Se null = sessione NON attiva (nessuno può mettere like)
         let globalData = { sessionEnd: null };
         let currentUser = null;
         let activeChatMatchId = null;
@@ -333,18 +338,17 @@
             }
         }
 
-        // Helpers per stato sessione
+        // Helpers per stato sessione (usano getNetworkTime)
         function isSessionActive() {
-            return globalData && globalData.sessionEnd && (globalData.sessionEnd - Date.now() > 0);
+            return globalData && globalData.sessionEnd && (globalData.sessionEnd - getNetworkTime() > 0);
         }
         function isSessionExpired() {
-            return globalData && globalData.sessionEnd && (globalData.sessionEnd - Date.now() <= 0);
+            return globalData && globalData.sessionEnd && (globalData.sessionEnd - getNetworkTime() <= 0);
         }
         function hasSessionEverStarted() {
             return globalData && globalData.sessionEnd;
         }
 
-        // Chiave canonica per una coppia di utenti (ordine indipendente)
         function pairKey(idA, idB) {
             return [String(idA), String(idB)].sort().join('__');
         }
@@ -386,7 +390,6 @@
             btn.innerText = "Ingresso al locale...";
 
             const userId = 'usr_' + Date.now();
-            // likesCount iniziale: 3 se la sessione è attiva, 0 altrimenti
             const startingLikes = isSessionActive() ? 3 : 0;
             const userObj = { id: userId, name: name, photo: selfieCatturatoBase64, likesCount: startingLikes };
             
@@ -416,9 +419,11 @@
                         const partnerId = m.u1 === currentUser.id ? m.u2 : m.u1;
                         const partner = db.users.find(u => u.id === partnerId);
                         if (!partner) return;
+        
                         const item = document.createElement('div');
                         item.className = "flex flex-col items-center space-y-1 flex-shrink-0 cursor-pointer text-center group";
                         item.onclick = () => apriChat(m.id);
+                    
                         let borderStyle = m.shotClaimed ? "border-stone-700 opacity-60" : "border-amber-400 animate-pulse";
                         item.innerHTML = `<div class="relative"><img src="${partner.photo}" class="w-14 h-14 rounded-full object-cover border-2 ${borderStyle}">${!m.shotClaimed ? '<span class="absolute top-0 right-0 w-3 h-3 bg-amber-400 rounded-full border border-stone-900 animate-bounce"></span>' : ''}</div><span class="text-[10px] text-stone-300 max-w-[60px] truncate block">${partner.name}</span>`;
                         avatarRow.appendChild(item);
@@ -431,8 +436,6 @@
             }
 
             const feedContainer = document.getElementById('users-feed-container');
-
-            // BLOCCO 1: Sessione mai partita / disattiva
             if (!hasSessionEverStarted() || (!isSessionActive() && mieiMatches.length === 0)) {
                 if (lastRenderedUserId !== "no_session") {
                     feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]">
@@ -445,7 +448,6 @@
                 return;
             }
 
-            // BLOCCO 2: ha già un match attivo → non può cercare altri
             if (mieiMatches.length > 0) {
                 if (lastRenderedUserId !== "has_match") {
                     feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]"><span class="text-4xl mb-4">🥂</span><h4 class="font-bold text-lg text-white">Hai un Match attivo!</h4><p class="text-xs text-stone-400 mt-2 max-w-[220px] mx-auto">Non puoi cercare altre persone finché hai un incontro attivo in questa sessione. Parla in chat o vai al bancone con il tuo partner!</p></div>`;
@@ -454,24 +456,19 @@
                 return;
             }
 
-            // Sessione attiva, nessun match → filtra utenti disponibili
             const utentiDisponibili = db.users.filter(u => {
                 if (!u || !u.id || !currentUser || !currentUser.id) return false;
                 if (String(u.id) === String(currentUser.id)) return false;
                 if (u.name === currentUser.name && u.photo === currentUser.photo) return false;
                 
-                // già matchati in QUESTA sessione
                 const giaMatchatiNow = db.matches.some(m => (m.u1 === currentUser.id && m.u2 === u.id) || (m.u1 === u.id && m.u2 === currentUser.id));
                 if (giaMatchatiNow) return false;
-                
-                // già matchati in una SESSIONE PRECEDENTE (storico permanente)
+ 
                 const pk = pairKey(currentUser.id, u.id);
                 const giaMatchatiStorico = db.matchHistory.some(h => h === pk || (h && h.pair === pk));
+            
                 if (giaMatchatiStorico) return false;
-                
-                // già votato in questa sessione
                 if (db.likes.some(l => l.from === currentUser.id && l.to === u.id)) return false;
-                
                 return true;
             });
 
@@ -499,21 +496,17 @@
 
         window.mettiLikeTinder = function(targetUserId) {
             if (!currentUser) return;
-            // Blocco se sessione non attiva
             if (!isSessionActive()) {
                 alert("⏸️ La sessione di voto non è attiva. Attendi l'avvio da parte dello Staff.");
                 return;
             }
             if ((currentUser.likesCount || 0) <= 0) return;
-            
-            // Blocco: un match attivo alla volta
             const giaMatchati = db.matches.some(m => m.u1 === currentUser.id || m.u2 === currentUser.id);
             if (giaMatchati) {
                 alert("🥂 Hai già un match attivo. Vai al bancone con il tuo partner!");
                 return;
             }
 
-            // Blocco: già matchati in passato (storico)
             const pk = pairKey(currentUser.id, targetUserId);
             const giaMatchatiStorico = db.matchHistory.some(h => h === pk || (h && h.pair === pk));
             if (giaMatchatiStorico) {
@@ -521,15 +514,11 @@
                 return;
             }
 
-            push(ref(realtimeDb, 'likes'), { from: currentUser.id, to: targetUserId, time: Date.now() });
-            
+            push(ref(realtimeDb, 'likes'), { from: currentUser.id, to: targetUserId, time: getNetworkTime() });
             if (db.likes.some(l => l.from === targetUserId && l.to === currentUser.id)) {
                 const matchId = push(ref(realtimeDb, 'matches')).key;
                 set(ref(realtimeDb, `matches/${matchId}`), { u1: currentUser.id, u2: targetUserId, shotClaimed: false });
-                
-                // Aggiungi allo storico permanente
-                push(ref(realtimeDb, 'matchHistory'), { pair: pk, time: Date.now() });
-                
+                push(ref(realtimeDb, 'matchHistory'), { pair: pk, time: getNetworkTime() });
                 alert(`🎉 MATCH AVVENUTO! Vi siete scambiati un voto positivo! Andate al bancone del Mood!`);
                 apriChat(matchId);
             } else {
@@ -538,7 +527,7 @@
         };
 
         function apriChat(matchId) { 
-            activeChatMatchId = matchId; 
+            activeChatMatchId = matchId;
             mostraSchermata('screen-chat'); 
         }
         
@@ -552,7 +541,7 @@
             const input = document.getElementById('chat-input');
             const testo = input.value.trim(); 
             if (!testo || !activeChatMatchId) return;
-            push(ref(realtimeDb, 'messages'), { matchId: activeChatMatchId, sender: currentUser.id, text: testo, time: Date.now() });
+            push(ref(realtimeDb, 'messages'), { matchId: activeChatMatchId, sender: currentUser.id, text: testo, time: getNetworkTime() });
             input.value = "";
         };
 
@@ -578,41 +567,60 @@
                 container.appendChild(div);
             });
             container.scrollTop = container.scrollHeight;
+            
             const partnerId = match.u1 === currentUser.id ? match.u2 : match.u1;
             const partner = db.users.find(u => u.id === partnerId);
             if(partner){ 
-                document.getElementById('chat-partner-name').innerText = partner.name; 
+                document.getElementById('chat-partner-name').innerText = partner.name;
                 document.getElementById('chat-partner-img').src = partner.photo;
             }
         }
 
-        // Timer countdown sessione (lato utente)
+        // --- IL NUOVO TIMER GLOBALE CHE AGGIORNA SIA UTENTI CHE ADMIN ---
         setInterval(() => {
-            if (!currentUser) return;
-            const now = Date.now(); 
-            const timerBox = document.getElementById('cooldown-box');
-            const timerDisplay = document.getElementById('cooldown-timer'); 
-            const timerLabel = document.getElementById('cooldown-label');
-            const counterDisplay = document.getElementById('likes-counter');
-            
-            if (globalData && globalData.sessionEnd) {
-                const timeLeft = globalData.sessionEnd - now;
-                if (timeLeft > 0) {
-                    if(timerBox) timerBox.classList.remove('hidden');
-                    if(timerLabel) { timerLabel.innerText = "SESSIONE ATTIVA"; timerLabel.className = "text-xs text-amber-400 font-bold animate-pulse tracking-wider"; }
-                    const mins = Math.floor(timeLeft / 60000);
-                    const secs = Math.floor((timeLeft % 60000) / 1000);
-                    if(timerDisplay) timerDisplay.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-                    if(counterDisplay) counterDisplay.innerText = `${currentUser.likesCount || 0} / 3`;
+            const now = getNetworkTime(); // Usa il tempo sincronizzato con Firebase
+
+            // Aggiornamento Lato Utente
+            if (currentUser) {
+                const timerBox = document.getElementById('cooldown-box');
+                const timerDisplay = document.getElementById('cooldown-timer'); 
+                const timerLabel = document.getElementById('cooldown-label');
+                const counterDisplay = document.getElementById('likes-counter');
+                
+                if (globalData && globalData.sessionEnd) {
+                    const timeLeft = globalData.sessionEnd - now;
+                    if (timeLeft > 0) {
+                        if(timerBox) timerBox.classList.remove('hidden');
+                        if(timerLabel) { timerLabel.innerText = "SESSIONE ATTIVA"; timerLabel.className = "text-xs text-amber-400 font-bold animate-pulse tracking-wider"; }
+                        const mins = Math.floor(timeLeft / 60000);
+                        const secs = Math.floor((timeLeft % 60000) / 1000);
+                        if(timerDisplay) timerDisplay.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                        if(counterDisplay) counterDisplay.innerText = `${currentUser.likesCount || 0} / 3`;
+                    } else {
+                        if(timerBox) timerBox.classList.remove('hidden');
+                        if(timerLabel) { timerLabel.innerText = "SESSIONE CHIUSA"; timerLabel.className = "text-xs text-red-400 font-bold tracking-wider"; }
+                        if(timerDisplay) timerDisplay.innerText = "00:00";
+                        if(counterDisplay) counterDisplay.innerText = "0 / 3";
+                    }
                 } else {
-                    if(timerBox) timerBox.classList.remove('hidden');
-                    if(timerLabel) { timerLabel.innerText = "SESSIONE CHIUSA"; timerLabel.className = "text-xs text-red-400 font-bold tracking-wider"; }
-                    if(timerDisplay) timerDisplay.innerText = "00:00";
+                    if(timerBox) timerBox.classList.add('hidden');
                     if(counterDisplay) counterDisplay.innerText = "0 / 3";
                 }
-            } else {
-                if(timerBox) timerBox.classList.add('hidden');
-                if(counterDisplay) counterDisplay.innerText = "0 / 3";
+            }
+
+            // Aggiornamento Timer in tempo reale Lato Admin
+            if (isAdminAuthenticated && adminRole === "barman") {
+                const adminTimerDisplay = document.getElementById('admin-live-timer');
+                if (adminTimerDisplay && globalData && globalData.sessionEnd) {
+                    const timeLeft = globalData.sessionEnd - now;
+                    if (timeLeft > 0) {
+                        const mins = Math.floor(timeLeft / 60000);
+                        const secs = Math.floor((timeLeft % 60000) / 1000);
+                        adminTimerDisplay.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                    } else {
+                        adminTimerDisplay.innerText = "0:00";
+                    }
+                }
             }
         }, 1000);
 
@@ -662,7 +670,7 @@
             const titleElement = document.getElementById('admin-title');
             const projectorSection = document.getElementById('admin-projector-section');
             const barmanSection = document.getElementById('admin-barman-section');
-            
+
             if (adminRole === "presenter") {
                 titleElement.innerText = "Pannello Presentatore (Proiettore)";
                 projectorSection.classList.remove('hidden');
@@ -672,16 +680,12 @@
                 projectorSection.classList.add('hidden');
                 barmanSection.classList.remove('hidden');
                 
-                // SEZIONE CONTROLLO SESSIONE
                 const sessionBox = document.getElementById('admin-session-control');
                 let sessionHTML = '';
                 if (isSessionActive()) {
-                    const timeLeft = globalData.sessionEnd - Date.now();
-                    const mins = Math.floor(timeLeft / 60000);
-                    const secs = Math.floor((timeLeft % 60000) / 1000);
                     sessionHTML = `
                         <p class="text-xs text-emerald-400 uppercase font-black mb-1">🟢 SESSIONE IN CORSO</p>
-                        <p class="text-3xl font-mono font-black text-amber-400 mb-3">${mins}:${secs < 10 ? '0' : ''}${secs}</p>
+                        <p class="text-3xl font-mono font-black text-amber-400 mb-3" id="admin-live-timer">Calcolo...</p>
                         <button onclick="avviaNuovaSessione()" class="w-full bg-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">
                             🔄 Termina e Avvia Nuova Sessione (Reset Match/Like/Chat)
                         </button>
@@ -704,7 +708,7 @@
                     `;
                 }
                 sessionBox.innerHTML = sessionHTML;
-                
+
                 const container = document.getElementById('admin-matches-list'); 
                 container.innerHTML = "";
                 
@@ -713,7 +717,7 @@
                     noMatchesMsg.className = "text-center text-sm text-stone-500 py-8";
                     noMatchesMsg.innerText = "Nessun match attivo nel locale per ora.";
                     container.appendChild(noMatchesMsg);
-                    return; 
+                    return;
                 }
                 
                 db.matches.forEach(m => {
@@ -723,6 +727,7 @@
                     
                     const item = document.createElement('div'); 
                     item.className = "bg-stone-950 p-4 border border-stone-800 rounded-xl flex flex-col space-y-3 mb-2";
+            
                     let adminBtn = m.shotClaimed ? `<span class="w-full text-center block bg-stone-900 text-emerald-400 border border-emerald-900/40 text-xs font-bold p-2 rounded-lg uppercase">Shot Erogati ✓</span>` : `<button onclick="convalidaShotAdmin('${m.id}')" class="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">Convalida e Offri Shot 🥂</button>`;
                     item.innerHTML = `<div class="flex items-center justify-around text-center"><div><img src="${u1.photo}" class="w-12 h-12 rounded-full mx-auto object-cover border-2 border-stone-700"><p class="text-xs font-bold mt-1 text-stone-300">${u1.name}</p></div><div class="text-amber-400 font-bold text-xl neon-text">⚡</div><div><img src="${u2.photo}" class="w-12 h-12 rounded-full mx-auto object-cover border-2 border-stone-700"><p class="text-xs font-bold mt-1 text-stone-300">${u2.name}</p></div></div>${adminBtn}`;
                     container.appendChild(item);
@@ -730,17 +735,14 @@
             }
         }
 
-        // --- NUOVA LOGICA: Admin Mood avvia/riavvia la sessione ---
-        // Reset di match, messaggi e like; mantiene utenti e matchHistory; 
-        // ricarica 3 like su tutti; imposta sessionEnd a +10 min
         window.avviaNuovaSessione = function() {
             const confermaMsg = isSessionActive() 
                 ? "Vuoi TERMINARE la sessione corrente e avviarne una NUOVA? Match, chat e voti attuali verranno azzerati."
                 : "Vuoi AVVIARE una nuova sessione di 10 minuti? Eventuali match e chat precedenti verranno azzerati e tutti gli utenti riceveranno 3 nuovi Like.";
-            
             if (!confirm(confermaMsg)) return;
             
-            const dieciMinuti = Date.now() + (10 * 60 * 1000);
+            // Usiamo il tempo di rete sincronizzato invece di Date.now()!
+            const dieciMinuti = getNetworkTime() + (10 * 60 * 1000);
             const updates = {};
             updates['matches'] = null;
             updates['messages'] = null;
@@ -749,6 +751,7 @@
             db.users.forEach(u => {
                 updates[`users/${u.id}/likesCount`] = 3;
             });
+            
             update(ref(realtimeDb), updates).then(() => {
                 alert("✅ Nuova sessione avviata! 10 minuti di tempo, 3 Like per ogni utente.");
                 lastRenderedUserId = null;
@@ -762,7 +765,6 @@
             update(ref(realtimeDb, `matches/${matchId}`), { shotClaimed: true });
         };
         
-        // Reset TOTALE (svuota anche utenti e storico match)
         window.resettareTutto = function() { 
             if(confirm("⚠️ ATTENZIONE: Svuoterai TUTTO il database: utenti, match, messaggi, voti E lo storico dei match passati. Sei sicuro?")) { 
                 const updates = {};
@@ -782,13 +784,13 @@
                 });
             } 
         };
-        
+
         window.switchRole = function(role) { 
-            if (role === "admin") mostraSchermata('screen-admin'); 
+            if (role === "admin") mostraSchermata('screen-admin');
             else mostraSchermata(currentUser ? 'screen-feed' : 'screen-register'); 
         };
 
-        // --- GESTIONE PROIETTORE ---
+        // GESTIONE PROIETTORE
         window.avviaProiezioneGiardino = function() {
             document.getElementById('app-wrapper').classList.add('hidden');
             document.getElementById('projector-wrapper').classList.remove('hidden');
@@ -805,7 +807,6 @@
 
         window.chiudiProiezione = function() {
             clearInterval(loopProiettoreInterval);
-            
             if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
                 if (document.exitFullscreen) document.exitFullscreen();
                 else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
@@ -818,8 +819,7 @@
         };
 
         window.toggleFullScreen = function() {
-            const elem = document.documentElement; 
-            
+            const elem = document.documentElement;
             if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
                 if (elem.requestFullscreen) elem.requestFullscreen();
                 else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
@@ -834,7 +834,7 @@
         };
 
         // GESTIONE CAMERA
-        const videoFeed = document.getElementById('video-feed'); 
+        const videoFeed = document.getElementById('video-feed');
         const photoCanvas = document.getElementById('photo-canvas');
         const fallbackMsg = document.getElementById('fallback-msg'); 
         const btnCameraAction = document.getElementById('btn-camera-action');
@@ -846,7 +846,7 @@
 
         window.gestisciAzioneFotocamera = async function() { 
             if (isFallbackMode) { document.getElementById('camera-fallback-input').click(); return; } 
-            if (cameraState === 0) await startVideoFeed(); 
+            if (cameraState === 0) await startVideoFeed();
             else if (cameraState === 1) catturaSelfie(); 
         };
         
