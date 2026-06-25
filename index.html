@@ -31,7 +31,6 @@
         .scrollbar-none::-webkit-scrollbar { display: none; }
         .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 
-        /* Stili specifici per la proiezione in giardino */
         .projector-slide {
             width: 100vw;
             height: 100vh;
@@ -103,10 +102,10 @@
                 <div class="bg-stone-900 border border-stone-800 rounded-2xl p-4 flex justify-between items-center shadow-xl">
                     <div>
                         <p class="text-xs text-stone-400 uppercase font-semibold tracking-wider">I tuoi Like rimasti</p>
-                        <p class="text-2xl font-black text-amber-400" id="likes-counter">3 / 3</p>
+                        <p class="text-2xl font-black text-amber-400" id="likes-counter">0 / 3</p>
                     </div>
                     <div id="cooldown-box" class="text-right hidden">
-                        <p class="text-xs text-red-400 font-bold animate-pulse tracking-wider">PROSSIMI LIKE TRA</p>
+                        <p class="text-xs text-amber-400 font-bold animate-pulse tracking-wider" id="cooldown-label">SESSIONE ATTIVA</p>
                         <p class="text-lg font-mono font-bold text-stone-200" id="cooldown-timer">10:00</p>
                     </div>
                 </div>
@@ -164,9 +163,10 @@
                     </div>
                     
                     <div id="admin-barman-section" class="hidden space-y-4">
+                        <div id="admin-session-control" class="bg-stone-950 p-4 border border-amber-500/30 rounded-xl text-center"></div>
                         <div id="admin-matches-list" class="space-y-4"></div>
                         <div class="border-t border-stone-800 pt-4 mt-6">
-                            <button onclick="resettareTutto()" class="w-full bg-red-950/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 rounded-xl p-2.5 text-xs font-bold transition">⚠️ Svuota Database Cloud Completo</button>
+                            <button onclick="resettareTutto()" class="w-full bg-red-950/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 rounded-xl p-2.5 text-xs font-bold transition">⚠️ Svuota Database Cloud Completo (utenti inclusi)</button>
                         </div>
                     </div>
                 </div>
@@ -212,7 +212,7 @@
                         <p>❤️ Ti piace qualcuno? Clicca sul <span class="text-red-500 font-bold">Cuore</span>.</p>
                         <p>❌ Vuoi passare oltre? Clicca sulla <span class="text-red-400 font-bold">Croce</span>.</p>
                     </div>
-                    <p class="text-lg text-amber-400 font-bold bg-amber-500/5 border border-amber-500/20 p-4 rounded-xl inline-block">⚠️ Attenzione: Hai solo 3 Like a disposizione! Poi scatta il cooldown. Usali bene!</p>
+                    <p class="text-lg text-amber-400 font-bold bg-amber-500/5 border border-amber-500/20 p-4 rounded-xl inline-block">⚠️ Attenzione: Hai solo 3 Like a disposizione e 10 minuti per usarli!</p>
                 </div>
                 <div class="col-span-4 text-center text-9xl bg-stone-900 p-12 rounded-3xl border border-stone-800">❤️</div>
             </div>
@@ -258,7 +258,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, set, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, set, push, onValue, update, remove, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
         const firebaseConfig = {
           apiKey: "AIzaSyDmLp1DwC1CLN-JonVvXjwgTx00sEcrzUs",
           authDomain: "barmatch-c40ff.firebaseapp.com",
@@ -272,8 +272,12 @@
         const app = initializeApp(firebaseConfig);
         const realtimeDb = getDatabase(app);
 
-        let db = { users: [], likes: [], matches: [], messages: [] };
-        let globalData = { cooldownEnd: null };
+        // db.matchHistory: storico permanente delle coppie che si sono già matchate
+        // (sopravvive a tutti i reset di sessione, finché non si svuota il DB intero)
+        let db = { users: [], likes: [], matches: [], messages: [], matchHistory: [] };
+        // globalData.sessionEnd: timestamp di fine sessione (10 min dopo lo start)
+        // Se null = sessione NON attiva (nessuno può mettere like)
+        let globalData = { sessionEnd: null };
         let currentUser = null;
         let activeChatMatchId = null;
         let videoStream = null;
@@ -308,8 +312,13 @@
             db.messages = Object.keys(data).map(k => ({ id: k, ...data[k] }));
             aggiornaUI();
         });
+        onValue(ref(realtimeDb, 'matchHistory'), (snapshot) => {
+            const data = snapshot.val() || {};
+            db.matchHistory = Object.values(data);
+            aggiornaUI();
+        });
         onValue(ref(realtimeDb, 'global'), (snapshot) => {
-            globalData = snapshot.val() || { cooldownEnd: null };
+            globalData = snapshot.val() || { sessionEnd: null };
             aggiornaUI();
         });
 
@@ -322,6 +331,22 @@
                     if (currentScreen === "screen-register") mostraSchermata('screen-feed');
                 }
             }
+        }
+
+        // Helpers per stato sessione
+        function isSessionActive() {
+            return globalData && globalData.sessionEnd && (globalData.sessionEnd - Date.now() > 0);
+        }
+        function isSessionExpired() {
+            return globalData && globalData.sessionEnd && (globalData.sessionEnd - Date.now() <= 0);
+        }
+        function hasSessionEverStarted() {
+            return globalData && globalData.sessionEnd;
+        }
+
+        // Chiave canonica per una coppia di utenti (ordine indipendente)
+        function pairKey(idA, idB) {
+            return [String(idA), String(idB)].sort().join('__');
         }
 
         function mostraSchermata(id) {
@@ -339,10 +364,10 @@
             if (currentUser) {
                 const counterDisplay = document.getElementById('likes-counter');
                 if (counterDisplay) {
-                    if (globalData && globalData.cooldownEnd) {
-                        counterDisplay.innerText = "0 / 3";
+                    if (isSessionActive()) {
+                        counterDisplay.innerText = `${currentUser.likesCount || 0} / 3`;
                     } else {
-                        counterDisplay.innerText = `${currentUser.likesCount} / 3`;
+                        counterDisplay.innerText = "0 / 3";
                     }
                 }
             }
@@ -361,7 +386,9 @@
             btn.innerText = "Ingresso al locale...";
 
             const userId = 'usr_' + Date.now();
-            const userObj = { id: userId, name: name, photo: selfieCatturatoBase64, likesCount: 3 };
+            // likesCount iniziale: 3 se la sessione è attiva, 0 altrimenti
+            const startingLikes = isSessionActive() ? 3 : 0;
+            const userObj = { id: userId, name: name, photo: selfieCatturatoBase64, likesCount: startingLikes };
             
             localStorage.setItem('bm_currentUserId', String(userId));
             currentUser = userObj;
@@ -405,22 +432,44 @@
 
             const feedContainer = document.getElementById('users-feed-container');
 
-            // --- REQUISITO: BLOCCO SE SI HA UN MATCH ATTIVO ---
+            // BLOCCO 1: Sessione mai partita / disattiva
+            if (!hasSessionEverStarted() || (!isSessionActive() && mieiMatches.length === 0)) {
+                if (lastRenderedUserId !== "no_session") {
+                    feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]">
+                        <span class="text-4xl mb-4 animate-pulse">⏸️</span>
+                        <h4 class="font-bold text-lg text-white">Sessione non attiva</h4>
+                        <p class="text-xs text-stone-400 mt-2 max-w-[240px] mx-auto">Lo Staff del Mood non ha ancora avviato (o ha terminato) la sessione di voto. Attendi l'apertura del prossimo round per usare i tuoi Like!</p>
+                    </div>`;
+                    lastRenderedUserId = "no_session";
+                }
+                return;
+            }
+
+            // BLOCCO 2: ha già un match attivo → non può cercare altri
             if (mieiMatches.length > 0) {
                 if (lastRenderedUserId !== "has_match") {
-                    feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]"><span class="text-4xl mb-4">🥂</span><h4 class="font-bold text-lg text-white">Hai un Match attivo!</h4><p class="text-xs text-stone-400 mt-2 max-w-[220px] mx-auto">Non puoi cercare altre persone finché hai un incontro attivo. Parla in chat o vai al bancone con il tuo partner!</p></div>`;
+                    feedContainer.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 text-center my-6 shadow-xl flex flex-col items-center justify-center min-h-[320px]"><span class="text-4xl mb-4">🥂</span><h4 class="font-bold text-lg text-white">Hai un Match attivo!</h4><p class="text-xs text-stone-400 mt-2 max-w-[220px] mx-auto">Non puoi cercare altre persone finché hai un incontro attivo in questa sessione. Parla in chat o vai al bancone con il tuo partner!</p></div>`;
                     lastRenderedUserId = "has_match";
                 }
                 return;
             }
 
+            // Sessione attiva, nessun match → filtra utenti disponibili
             const utentiDisponibili = db.users.filter(u => {
                 if (!u || !u.id || !currentUser || !currentUser.id) return false;
                 if (String(u.id) === String(currentUser.id)) return false;
                 if (u.name === currentUser.name && u.photo === currentUser.photo) return false;
                 
-                const giaMatchati = db.matches.some(m => (m.u1 === currentUser.id && m.u2 === u.id) || (m.u1 === u.id && m.u2 === currentUser.id));
-                if (giaMatchati) return false;
+                // già matchati in QUESTA sessione
+                const giaMatchatiNow = db.matches.some(m => (m.u1 === currentUser.id && m.u2 === u.id) || (m.u1 === u.id && m.u2 === currentUser.id));
+                if (giaMatchatiNow) return false;
+                
+                // già matchati in una SESSIONE PRECEDENTE (storico permanente)
+                const pk = pairKey(currentUser.id, u.id);
+                const giaMatchatiStorico = db.matchHistory.some(h => h === pk || (h && h.pair === pk));
+                if (giaMatchatiStorico) return false;
+                
+                // già votato in questa sessione
                 if (db.likes.some(l => l.from === currentUser.id && l.to === u.id)) return false;
                 
                 return true;
@@ -449,10 +498,28 @@
         };
 
         window.mettiLikeTinder = function(targetUserId) {
-            if (!currentUser || (globalData && globalData.cooldownEnd) || currentUser.likesCount <= 0) return;
+            if (!currentUser) return;
+            // Blocco se sessione non attiva
+            if (!isSessionActive()) {
+                alert("⏸️ La sessione di voto non è attiva. Attendi l'avvio da parte dello Staff.");
+                return;
+            }
+            if ((currentUser.likesCount || 0) <= 0) return;
             
+            // Blocco: un match attivo alla volta
             const giaMatchati = db.matches.some(m => m.u1 === currentUser.id || m.u2 === currentUser.id);
-            if (giaMatchati) return;
+            if (giaMatchati) {
+                alert("🥂 Hai già un match attivo. Vai al bancone con il tuo partner!");
+                return;
+            }
+
+            // Blocco: già matchati in passato (storico)
+            const pk = pairKey(currentUser.id, targetUserId);
+            const giaMatchatiStorico = db.matchHistory.some(h => h === pk || (h && h.pair === pk));
+            if (giaMatchatiStorico) {
+                alert("Hai già fatto match con questa persona in una sessione precedente!");
+                return;
+            }
 
             push(ref(realtimeDb, 'likes'), { from: currentUser.id, to: targetUserId, time: Date.now() });
             
@@ -460,20 +527,13 @@
                 const matchId = push(ref(realtimeDb, 'matches')).key;
                 set(ref(realtimeDb, `matches/${matchId}`), { u1: currentUser.id, u2: targetUserId, shotClaimed: false });
                 
-                // --- REQUISITO: TIMER UNIVERSALE DI 10 MINUTI ATTIVATO SUL DETTAGLIO GLOBALE ---
-                const dieciMinuti = Date.now() + (10 * 60 * 1000);
-                set(ref(realtimeDb, 'global/cooldownEnd'), dieciMinuti);
+                // Aggiungi allo storico permanente
+                push(ref(realtimeDb, 'matchHistory'), { pair: pk, time: Date.now() });
                 
                 alert(`🎉 MATCH AVVENUTO! Vi siete scambiati un voto positivo! Andate al bancone del Mood!`);
                 apriChat(matchId);
             } else {
-                if (currentUser.likesCount === 1) {
-                    const dieciMinuti = Date.now() + (10 * 60 * 1000);
-                    set(ref(realtimeDb, 'global/cooldownEnd'), dieciMinuti);
-                    update(ref(realtimeDb, `users/${currentUser.id}`), { likesCount: 0 });
-                } else { 
-                    update(ref(realtimeDb, `users/${currentUser.id}`), { likesCount: currentUser.likesCount - 1 });
-                }
+                update(ref(realtimeDb, `users/${currentUser.id}`), { likesCount: (currentUser.likesCount || 0) - 1 });
             }
         };
 
@@ -526,28 +586,33 @@
             }
         }
 
-        // --- REQUISITO: LOGICA DI AGGIORNAMENTO DEL TIMER UNIVERSALE GLOBALE ---
+        // Timer countdown sessione (lato utente)
         setInterval(() => {
             if (!currentUser) return;
             const now = Date.now(); 
             const timerBox = document.getElementById('cooldown-box');
             const timerDisplay = document.getElementById('cooldown-timer'); 
+            const timerLabel = document.getElementById('cooldown-label');
             const counterDisplay = document.getElementById('likes-counter');
             
-            if (globalData && globalData.cooldownEnd) {
-                if(timerBox) timerBox.classList.remove('hidden'); 
-                if(counterDisplay) counterDisplay.innerText = "0 / 3";
-                
-                const timeLeft = globalData.cooldownEnd - now;
+            if (globalData && globalData.sessionEnd) {
+                const timeLeft = globalData.sessionEnd - now;
                 if (timeLeft > 0) {
-                    if(timerDisplay) timerDisplay.innerText = `${Math.floor(timeLeft / 60000)}:${Math.floor((timeLeft % 60000) / 1000) < 10 ? '0' : ''}${Math.floor((timeLeft % 60000) / 1000)}`;
+                    if(timerBox) timerBox.classList.remove('hidden');
+                    if(timerLabel) { timerLabel.innerText = "SESSIONE ATTIVA"; timerLabel.className = "text-xs text-amber-400 font-bold animate-pulse tracking-wider"; }
+                    const mins = Math.floor(timeLeft / 60000);
+                    const secs = Math.floor((timeLeft % 60000) / 1000);
+                    if(timerDisplay) timerDisplay.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                    if(counterDisplay) counterDisplay.innerText = `${currentUser.likesCount || 0} / 3`;
                 } else {
-                    // Resta bloccato su "ATTESA STAFF" finché l'admin Mood non resetta manualmente
-                    if(timerDisplay) timerDisplay.innerText = "ATTESA STAFF";
+                    if(timerBox) timerBox.classList.remove('hidden');
+                    if(timerLabel) { timerLabel.innerText = "SESSIONE CHIUSA"; timerLabel.className = "text-xs text-red-400 font-bold tracking-wider"; }
+                    if(timerDisplay) timerDisplay.innerText = "00:00";
+                    if(counterDisplay) counterDisplay.innerText = "0 / 3";
                 }
             } else {
                 if(timerBox) timerBox.classList.add('hidden');
-                if(counterDisplay) counterDisplay.innerText = `${currentUser.likesCount} / 3`;
+                if(counterDisplay) counterDisplay.innerText = "0 / 3";
             }
         }, 1000);
 
@@ -607,24 +672,41 @@
                 projectorSection.classList.add('hidden');
                 barmanSection.classList.remove('hidden');
                 
-                const container = document.getElementById('admin-matches-list'); 
-                container.innerHTML = "";
-                
-                // --- REQUISITO: BLOCCO GESTIONE RESET DEL TIMER UNIVERSALE PER ACCOUNT BARMAN "Mood" ---
-                const blockTimer = document.createElement('div');
-                blockTimer.className = "bg-stone-950 p-4 border border-amber-500/30 rounded-xl mb-4 text-center";
-                if (globalData && globalData.cooldownEnd) {
-                    const statusText = (globalData.cooldownEnd - Date.now() > 0) ? "In corso..." : "Scaduto (In attesa di sblocco)";
-                    blockTimer.innerHTML = `
-                        <p class="text-xs text-stone-400 uppercase font-black mb-2">⏱️ Stato Cooldown: <span class="text-amber-400">${statusText}</span></p>
-                        <button onclick="resettareTimerGlobale()" class="w-full bg-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">
-                            🔄 Sblocca/Resetta Cooldown Globale
+                // SEZIONE CONTROLLO SESSIONE
+                const sessionBox = document.getElementById('admin-session-control');
+                let sessionHTML = '';
+                if (isSessionActive()) {
+                    const timeLeft = globalData.sessionEnd - Date.now();
+                    const mins = Math.floor(timeLeft / 60000);
+                    const secs = Math.floor((timeLeft % 60000) / 1000);
+                    sessionHTML = `
+                        <p class="text-xs text-emerald-400 uppercase font-black mb-1">🟢 SESSIONE IN CORSO</p>
+                        <p class="text-3xl font-mono font-black text-amber-400 mb-3">${mins}:${secs < 10 ? '0' : ''}${secs}</p>
+                        <button onclick="avviaNuovaSessione()" class="w-full bg-amber-500 text-stone-950 text-xs font-black p-2 rounded-lg uppercase transition hover:opacity-90">
+                            🔄 Termina e Avvia Nuova Sessione (Reset Match/Like/Chat)
+                        </button>
+                    `;
+                } else if (isSessionExpired()) {
+                    sessionHTML = `
+                        <p class="text-xs text-red-400 uppercase font-black mb-2">🔴 SESSIONE TERMINATA</p>
+                        <p class="text-[11px] text-stone-400 mb-3">Match e chat esistenti restano attivi finché non avvii una nuova sessione.</p>
+                        <button onclick="avviaNuovaSessione()" class="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 text-xs font-black p-3 rounded-lg uppercase transition hover:opacity-90 neon-border">
+                            ▶️ Avvia Nuova Sessione (10 min)
                         </button>
                     `;
                 } else {
-                    blockTimer.innerHTML = `<p class="text-xs text-emerald-400 uppercase font-black">⏱️ Cooldown Globale Disattivo (Voti Liberi)</p>`;
+                    sessionHTML = `
+                        <p class="text-xs text-stone-400 uppercase font-black mb-2">⏸️ NESSUNA SESSIONE ATTIVA</p>
+                        <p class="text-[11px] text-stone-400 mb-3">Premi il pulsante per dare il via al gioco. Tutti gli utenti registrati avranno 3 Like per 10 minuti.</p>
+                        <button onclick="avviaNuovaSessione()" class="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-stone-950 text-sm font-black p-3 rounded-lg uppercase transition hover:opacity-90 neon-border">
+                            ▶️ AVVIA SESSIONE (10 min)
+                        </button>
+                    `;
                 }
-                container.appendChild(blockTimer);
+                sessionBox.innerHTML = sessionHTML;
+                
+                const container = document.getElementById('admin-matches-list'); 
+                container.innerHTML = "";
                 
                 if (db.matches.length === 0) { 
                     const noMatchesMsg = document.createElement('p');
@@ -648,40 +730,55 @@
             }
         }
 
-        // --- REQUISITO: RESET MANUALE TIMER DA PARTE DELL'ADMIN "Mood" ---
-        window.resettareTimerGlobale = function() {
-            if (confirm("Vuoi azzerare il timer universale sbloccando i 3 Like per tutti i profili registrati nel locale?")) {
-                const updates = {};
-                updates['global'] = null;
-                db.users.forEach(u => {
-                    updates[`users/${u.id}/likesCount`] = 3;
-                });
-                update(ref(realtimeDb), updates).then(() => {
-                    alert("Timer globale azzerato e Mi Piace ricaricati per tutti!");
-                });
-            }
+        // --- NUOVA LOGICA: Admin Mood avvia/riavvia la sessione ---
+        // Reset di match, messaggi e like; mantiene utenti e matchHistory; 
+        // ricarica 3 like su tutti; imposta sessionEnd a +10 min
+        window.avviaNuovaSessione = function() {
+            const confermaMsg = isSessionActive() 
+                ? "Vuoi TERMINARE la sessione corrente e avviarne una NUOVA? Match, chat e voti attuali verranno azzerati."
+                : "Vuoi AVVIARE una nuova sessione di 10 minuti? Eventuali match e chat precedenti verranno azzerati e tutti gli utenti riceveranno 3 nuovi Like.";
+            
+            if (!confirm(confermaMsg)) return;
+            
+            const dieciMinuti = Date.now() + (10 * 60 * 1000);
+            const updates = {};
+            updates['matches'] = null;
+            updates['messages'] = null;
+            updates['likes'] = null;
+            updates['global/sessionEnd'] = dieciMinuti;
+            db.users.forEach(u => {
+                updates[`users/${u.id}/likesCount`] = 3;
+            });
+            update(ref(realtimeDb), updates).then(() => {
+                alert("✅ Nuova sessione avviata! 10 minuti di tempo, 3 Like per ogni utente.");
+                lastRenderedUserId = null;
+                activeChatMatchId = null;
+            }).catch(e => {
+                alert("Errore nell'avvio della sessione: " + e.message);
+            });
         };
 
         window.convalidaShotAdmin = function(matchId) { 
             update(ref(realtimeDb, `matches/${matchId}`), { shotClaimed: true });
         };
         
-        // --- REQUISITO: SVUOTA DATABASE (AZZERAMENTO MATCH, MESSAGGI E MI PIACE SUGLI UTENTI) ---
+        // Reset TOTALE (svuota anche utenti e storico match)
         window.resettareTutto = function() { 
-            if(confirm("Sei sicuro di voler svuotare i match e i messaggi? Questa azione azzera le interazioni mantenendo gli utenti pronti con 3 nuovi Like.")) { 
+            if(confirm("⚠️ ATTENZIONE: Svuoterai TUTTO il database: utenti, match, messaggi, voti E lo storico dei match passati. Sei sicuro?")) { 
                 const updates = {};
                 updates['matches'] = null;
                 updates['messages'] = null;
                 updates['likes'] = null;
                 updates['global'] = null;
-                db.users.forEach(u => {
-                    updates[`users/${u.id}/likesCount`] = 3;
-                });
+                updates['users'] = null;
+                updates['matchHistory'] = null;
                 update(ref(realtimeDb), updates).then(() => {
-                    alert("Match, messaggi e voti eliminati dal cloud. Utenti ripristinati!");
+                    alert("Database completamente svuotato.");
+                    localStorage.removeItem('bm_currentUserId');
+                    currentUser = null;
                     lastRenderedUserId = null;
                     activeChatMatchId = null;
-                    mostraSchermata('screen-feed');
+                    mostraSchermata('screen-register');
                 });
             } 
         };
@@ -691,8 +788,7 @@
             else mostraSchermata(currentUser ? 'screen-feed' : 'screen-register'); 
         };
 
-        // --- GESTIONE PROIETTORE CON SCHERMO INTERO MANUALE ---
-        
+        // --- GESTIONE PROIETTORE ---
         window.avviaProiezioneGiardino = function() {
             document.getElementById('app-wrapper').classList.add('hidden');
             document.getElementById('projector-wrapper').classList.remove('hidden');
@@ -725,29 +821,19 @@
             const elem = document.documentElement; 
             
             if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
-                if (elem.requestFullscreen) {
-                    elem.requestFullscreen();
-                } else if (elem.msRequestFullscreen) {
-                    elem.msRequestFullscreen();
-                } else if (elem.mozRequestFullScreen) {
-                    elem.mozRequestFullScreen();
-                } else if (elem.webkitRequestFullscreen) {
-                    elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
-                }
+                if (elem.requestFullscreen) elem.requestFullscreen();
+                else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+                else if (elem.mozRequestFullScreen) elem.mozRequestFullScreen();
+                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
             } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                } else if (document.msExitFullscreen) {
-                    document.msExitFullscreen();
-                } else if (document.mozCancelFullScreen) {
-                    document.mozCancelFullScreen();
-                } else if (document.webkitExitFullscreen) {
-                    document.webkitExitFullscreen();
-                }
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.msExitFullscreen) document.msExitFullscreen();
+                else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
             }
         };
 
-        // GESTIONE CAM NATIVA MOBILE
+        // GESTIONE CAMERA
         const videoFeed = document.getElementById('video-feed'); 
         const photoCanvas = document.getElementById('photo-canvas');
         const fallbackMsg = document.getElementById('fallback-msg'); 
@@ -860,4 +946,3 @@
     </script>
 </body>
 </html>
-
